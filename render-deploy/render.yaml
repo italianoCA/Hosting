@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: wfm-forecast-web
+    runtime: static
+    staticPublishPath: ./web
+    buildCommand: ""
+    routes:
+      - path: /
+    envVars: []
+
+  - type: web
+    name: snow-mcp-server
+    runtime: python
+    pythonVersion: 3.11
+    buildCommand: pip install -r mcp/snow/requirements.txt
+    startCommand: python mcp/snow/snow_mcp.py
+    envVars:
+      - key: SNOW_BASE_URL
+        sync: false
+      - key: SNOW_CREDENTIAL
+        sync: false
+      - key: SNOW_VA_SYS_ID
+        sync: false
+      - key: MCP_AUTH_TOKEN
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    routes:
+      - path: /
+
+  - type: web
+    name: zoom-mcp-server
+    runtime: python
+    pythonVersion: 3.11
+    buildCommand: pip install -r mcp/zoom/requirements.txt
+    startCommand: python mcp/zoom/mcp_server.py
+    envVars:
+      - key: ZOOM_ACCOUNT_ID
+        sync: false
+      - key: ZOOM_CLIENT_ID
+        sync: false
+      - key: ZOOM_CLIENT_SECRET
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    routes:
+      - path: /
