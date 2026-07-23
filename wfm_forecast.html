@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WFM Multi-Channel Forecast Generator</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-hover: #0ea5e9;
+    --error: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    padding: 2rem 1rem;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+  p.sub { color: var(--muted); margin: 0 0 1.75rem; font-size: 0.9rem; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+  }
+  .field { margin-bottom: 1.25rem; }
+  label { display: block; font-weight: 600; margin-bottom: 0.4rem; font-size: 0.9rem; }
+  label .hint { font-weight: 400; color: var(--muted); font-size: 0.82rem; }
+  input {
+    width: 100%;
+    padding: 0.65rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  input.invalid { border-color: var(--error); }
+  .err { color: var(--error); font-size: 0.8rem; margin-top: 0.35rem; display: none; }
+  .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .row .field { flex: 1; min-width: 180px; }
+  .actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap; }
+  button {
+    padding: 0.7rem 1.25rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: #06283d; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  button.ghost:hover { border-color: var(--accent); }
+  .summary {
+    margin-top: 1.5rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    display: none;
+  }
+  .summary strong { color: var(--text); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.78rem;
+    display: none;
+  }
+  th, td { text-align: left; padding: 0.4rem 0.55rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--accent); font-weight: 600; }
+  .preview-note { color: var(--muted); font-size: 0.78rem; margin-top: 0.5rem; display: none; }
+
+  /* Calendar widget */
+  .cal-anchor { position: relative; }
+  .date-display {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.65rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 400;
+    cursor: pointer;
+    text-align: left;
+  }
+  .date-display:hover { border-color: var(--accent); }
+  .date-display[aria-expanded="true"] { border-color: var(--accent); }
+  .date-display svg { flex: 0 0 auto; color: var(--muted); }
+  .date-display.invalid { border-color: var(--error); }
+  .calendar {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 6px);
+    left: 0;
+    width: 280px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+  .calendar[hidden] { display: none; }
+  .cal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.6rem;
+  }
+  .cal-title { font-weight: 600; font-size: 0.92rem; }
+  .cal-nav {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    width: 30px;
+    height: 30px;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+  }
+  .cal-nav:hover { border-color: var(--accent); color: var(--accent); }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .cal-wd {
+    text-align: center;
+    font-size: 0.7rem;
+    color: var(--muted);
+    padding: 0.25rem 0;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .cal-day {
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+  .cal-day:hover:not(.empty) { background: var(--border); }
+  .cal-day.empty { cursor: default; }
+  .cal-day.today { outline: 1px solid var(--muted); }
+  .cal-day.selected { background: var(--accent); color: #06283d; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>WFM Multi-Channel Forecast Generator</h1>
+  <p class="sub">Channels: voice, messaging, deferrable &middot; Monday&ndash;Friday &middot; 15-minute intervals</p>
+
+  <div class="card">
+    <div class="field">
+      <label>Start date of the week <span class="hint">(YYYY-MM-DD)</span></label>
+      <input type="hidden" id="startDate" value="2026-07-27">
+      <div class="cal-anchor">
+        <button type="button" class="date-display" id="dateDisplay" aria-haspopup="dialog" aria-expanded="false">
+          <span id="dateLabel">2026-07-27</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+        </button>
+        <div class="calendar" id="calendar" role="dialog" aria-label="Choose start date" hidden>
+          <div class="cal-head">
+            <button type="button" class="cal-nav" id="prevMonth" aria-label="Previous month">&lsaquo;</button>
+            <span class="cal-title" id="calTitle"></span>
+            <button type="button" class="cal-nav" id="nextMonth" aria-label="Next month">&rsaquo;</button>
+          </div>
+          <div class="cal-grid" id="calWeekdays"></div>
+          <div class="cal-grid" id="calDays"></div>
+        </div>
+      </div>
+      <div class="err" id="err-startDate">Please enter a valid date.</div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="numWeeks">Number of weeks to generate</label>
+        <input type="number" id="numWeeks" min="1" max="52" step="1" value="4">
+        <div class="err" id="err-numWeeks">Enter a whole number between 1 and 52.</div>
+      </div>
+      <div class="field">
+        <label for="groupName">Scheduling group name <span class="hint">(e.g. Banking_All)</span></label>
+        <input type="text" id="groupName" value="Banking_All" placeholder="Banking_All">
+        <div class="err" id="err-groupName">Scheduling group name is required.</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="campaign">Campaign name <span class="hint">(optional &mdash; leave blank if none)</span></label>
+      <input type="text" id="campaign" placeholder="(blank)">
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="generateBtn">Generate &amp; Download CSV</button>
+      <button class="ghost" id="previewBtn">Preview first rows</button>
+    </div>
+
+    <div class="summary" id="summary"></div>
+    <table id="preview"></table>
+    <div class="preview-note" id="previewNote"></div>
+  </div>
+</div>
+
+<script>
+// ───────────────────────────────────────────────────────────────────────────
+// CHANNEL CONFIGURATION  (ported from wfm_Week_forcecast_multichannel.py)
+// ───────────────────────────────────────────────────────────────────────────
+const CHANNELS = {
+  voice:      { volume_factor: 1.00, aht_base: 180, acw: 30, pattern: "immediate" },
+  messaging:  { volume_factor: 0.80, aht_base: 240, acw: 20, pattern: "immediate" },
+  deferrable: { volume_factor: 0.50, aht_base: 360, acw: 60, pattern: "deferred" },
+};
+
+const WINDOWS = {
+  immediate: [7 * 60, 19 * 60],   // minutes since midnight
+  deferred:  [0, 24 * 60],
+};
+
+const DAY_MULTIPLIERS = { 0: 0.85, 1: 0.95, 2: 1.00, 3: 1.00, 4: 0.90 };
+const INTERVAL = 15;               // minutes
+const VOICE_BASE_PEAK = 50;
+
+const HEADER = [
+  "start_time_interval",
+  "end_time_interval",
+  "scheduling_group_name",
+  "channel",
+  "volume",
+  "average_handle_time",
+  "campaign_name",
+];
+
+function gaussian(t, mu, sigma) {
+  return Math.exp(-((t - mu) ** 2) / (2 * sigma ** 2));
+}
+
+function immediateShape(t) {
+  if (t < 7 * 60 || t >= 19 * 60) return 0.0;
+  return gaussian(t, 13 * 60, 120);
+}
+
+function deferrableShape(t) {
+  let w = 0.08;
+  w += 0.35 * gaussian(t, 450, 45);    // 7:30 AM morning catch-up
+  w += 0.70 * gaussian(t, 780, 60);    // 1:00 PM post-lunch burst
+  w += 0.30 * gaussian(t, 930, 60);    // 3:30 PM afternoon shoulder
+  w += 0.90 * gaussian(t, 1170, 90);   // 7:30 PM evening spike
+  w += 0.20 * gaussian(t, 1320, 60);   // 10:00 PM late tail
+  return Math.min(w, 1.0);
+}
+
+function getShapeFn(channel) {
+  return {
+    voice: immediateShape,
+    messaging: immediateShape,
+    deferrable: deferrableShape,
+  }[channel];
+}
+
+// randint(a, b) inclusive, matching Python's random.randint
+function randint(a, b) {
+  return Math.floor(Math.random() * (b - a + 1)) + a;
+}
+
+function pad(n) { return String(n).padStart(2, "0"); }
+
+// Format a Date as "MM/DD/YYYY HH:MM" (matches Python "%m/%d/%Y %H:%M")
+function fmt(d) {
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()} ` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Calendar widget (drives the hidden #startDate input, value = YYYY-MM-DD)
+// ───────────────────────────────────────────────────────────────────────────
+(function initCalendar() {
+  const MONTHS = ["January", "February", "March", "April", "May", "June",
+                  "July", "August", "September", "October", "November", "December"];
+  const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];  // Monday-first
+
+  const hidden    = document.getElementById("startDate");
+  const display   = document.getElementById("dateDisplay");
+  const label     = document.getElementById("dateLabel");
+  const cal       = document.getElementById("calendar");
+  const title     = document.getElementById("calTitle");
+  const daysEl    = document.getElementById("calDays");
+  const prevBtn   = document.getElementById("prevMonth");
+  const nextBtn   = document.getElementById("nextMonth");
+
+  const parseISO = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const fmtISO   = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const sameDay  = (a, b) => a.getFullYear() === b.getFullYear()
+                          && a.getMonth() === b.getMonth()
+                          && a.getDate() === b.getDate();
+
+  let selected = /^\d{4}-\d{2}-\d{2}$/.test(hidden.value) ? parseISO(hidden.value) : new Date();
+  let view = new Date(selected.getFullYear(), selected.getMonth(), 1);
+
+  document.getElementById("calWeekdays").innerHTML =
+    WEEKDAYS.map((w) => `<div class="cal-wd">${w}</div>`).join("");
+
+  function render() {
+    title.textContent = `${MONTHS[view.getMonth()]} ${view.getFullYear()}`;
+    const first = new Date(view.getFullYear(), view.getMonth(), 1);
+    const offset = (first.getDay() + 6) % 7;   // Monday-first leading blanks
+    const daysInMonth = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
+    const today = new Date();
+
+    let cells = "";
+    for (let i = 0; i < offset; i++) cells += `<div class="cal-day empty"></div>`;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(view.getFullYear(), view.getMonth(), d);
+      const classes = ["cal-day"];
+      if (sameDay(date, selected)) classes.push("selected");
+      if (sameDay(date, today)) classes.push("today");
+      cells += `<button type="button" class="${classes.join(" ")}" data-date="${fmtISO(date)}">${d}</button>`;
+    }
+    daysEl.innerHTML = cells;
+  }
+
+  function syncValue() {
+    const iso = fmtISO(selected);
+    hidden.value = iso;
+    label.textContent = iso;
+  }
+
+  const open  = () => { render(); cal.hidden = false; display.setAttribute("aria-expanded", "true"); };
+  const close = () => { cal.hidden = true; display.setAttribute("aria-expanded", "false"); };
+
+  display.addEventListener("click", (e) => { e.stopPropagation(); cal.hidden ? open() : close(); });
+  prevBtn.addEventListener("click", (e) => { e.stopPropagation(); view = new Date(view.getFullYear(), view.getMonth() - 1, 1); render(); });
+  nextBtn.addEventListener("click", (e) => { e.stopPropagation(); view = new Date(view.getFullYear(), view.getMonth() + 1, 1); render(); });
+
+  daysEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".cal-day[data-date]");
+    if (!btn) return;
+    selected = parseISO(btn.dataset.date);
+    syncValue();
+    display.classList.remove("invalid");
+    document.getElementById("err-startDate").style.display = "none";
+    close();
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!cal.hidden && !cal.contains(e.target) && !display.contains(e.target)) close();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+  syncValue();
+})();
+
+function generateRows(startDateStr, numWeeks, groupName, campaignName) {
+  // Parse YYYY-MM-DD as a local date (avoid UTC shift)
+  const [y, m, day] = startDateStr.split("-").map(Number);
+  const startDate = new Date(y, m - 1, day);
+
+  const rows = [];
+
+  for (let week = 0; week < numWeeks; week++) {
+    for (let dayOffset = 0; dayOffset < 5; dayOffset++) {  // Monday–Friday
+      const current = new Date(startDate);
+      current.setDate(startDate.getDate() + dayOffset + week * 7);
+      const weekday = (current.getDay() + 6) % 7;          // 0 = Monday
+      const dayMult = DAY_MULTIPLIERS[weekday] ?? 1.0;
+
+      for (const [channel, cfg] of Object.entries(CHANNELS)) {
+        const shapeFn = getShapeFn(channel);
+        const [winStart, winEnd] = WINDOWS[cfg.pattern];
+        const peakVolume = Math.trunc(VOICE_BASE_PEAK * dayMult * cfg.volume_factor);
+
+        for (let mins = winStart; mins < winEnd; mins += INTERVAL) {
+          const startDt = new Date(current);
+          startDt.setHours(0, mins, 0, 0);
+          const endDt = new Date(startDt.getTime() + INTERVAL * 60000);
+
+          const weight = shapeFn(mins);
+          let volume = Math.trunc(peakVolume * weight);
+          volume += randint(-2, 2);
+          volume = Math.max(0, Math.min(volume, peakVolume));
+
+          if (volume === 0) continue;
+
+          const avgHandleTime = cfg.aht_base + cfg.acw + randint(-5, 5);
+
+          rows.push([
+            fmt(startDt),
+            fmt(endDt),
+            groupName,
+            channel,
+            volume,
+            avgHandleTime,
+            campaignName,
+          ]);
+        }
+      }
+    }
+  }
+  return rows;
+}
+
+function toCSV(rows) {
+  const esc = (v) => {
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [HEADER, ...rows].map((r) => r.map(esc).join(",")).join("\n");
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// UI wiring
+// ───────────────────────────────────────────────────────────────────────────
+function readInputs() {
+  const startDate = document.getElementById("startDate").value.trim();
+  const numWeeks = parseInt(document.getElementById("numWeeks").value, 10);
+  const groupName = document.getElementById("groupName").value.trim();
+  const campaign = document.getElementById("campaign").value.trim();
+
+  let ok = true;
+  const setErr = (id, show) => {
+    document.getElementById("err-" + id).style.display = show ? "block" : "none";
+    document.getElementById(id).classList.toggle("invalid", show);
+    if (show) ok = false;
+  };
+
+  setErr("startDate", !/^\d{4}-\d{2}-\d{2}$/.test(startDate) || isNaN(new Date(startDate)));
+  setErr("numWeeks", !Number.isInteger(numWeeks) || numWeeks < 1 || numWeeks > 52);
+  setErr("groupName", groupName.length === 0);
+
+  if (!ok) return null;
+  return { startDate, numWeeks, groupName, campaign };
+}
+
+function showSummary(inputs, rowCount) {
+  const el = document.getElementById("summary");
+  el.style.display = "block";
+  el.innerHTML =
+    `<strong>Scheduling group:</strong> ${inputs.groupName} &middot; ` +
+    `<strong>Campaign:</strong> ${inputs.campaign || "(blank)"} &middot; ` +
+    `<strong>Weeks:</strong> ${inputs.numWeeks} &middot; ` +
+    `<strong>Channels:</strong> ${Object.keys(CHANNELS).join(", ")} &middot; ` +
+    `<strong>Total rows:</strong> ${rowCount.toLocaleString()}`;
+}
+
+document.getElementById("generateBtn").addEventListener("click", () => {
+  const inputs = readInputs();
+  if (!inputs) return;
+
+  const rows = generateRows(inputs.startDate, inputs.numWeeks, inputs.groupName, inputs.campaign);
+  const csv = toCSV(rows);
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const fname = "forecast_" + inputs.startDate.replace(/-/g, "_") + ".csv";
+  a.href = url;
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  showSummary(inputs, rows.length);
+});
+
+document.getElementById("previewBtn").addEventListener("click", () => {
+  const inputs = readInputs();
+  if (!inputs) return;
+
+  const rows = generateRows(inputs.startDate, inputs.numWeeks, inputs.groupName, inputs.campaign);
+  const table = document.getElementById("preview");
+  const note = document.getElementById("previewNote");
+
+  const head = "<tr>" + HEADER.map((h) => `<th>${h}</th>`).join("") + "</tr>";
+  const body = rows.slice(0, 20)
+    .map((r) => "<tr>" + r.map((c) => `<td>${c === "" ? "&mdash;" : c}</td>`).join("") + "</tr>")
+    .join("");
+  table.innerHTML = head + body;
+  table.style.display = "table";
+
+  note.textContent = `Showing first ${Math.min(20, rows.length)} of ${rows.length.toLocaleString()} rows.`;
+  note.style.display = "block";
+
+  showSummary(inputs, rows.length);
+});
+</script>
+</body>
+</html>
