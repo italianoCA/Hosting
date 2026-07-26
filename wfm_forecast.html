@@ -196,9 +196,20 @@
 
     <div class="row">
       <div class="field">
-        <label for="numWeeks">Number of weeks to generate</label>
-        <input type="number" id="numWeeks" min="1" max="52" step="1" value="4">
-        <div class="err" id="err-numWeeks">Enter a whole number between 1 and 52.</div>
+        <label>Duration <span class="hint">(weeks or months)</span></label>
+        <div style="display: flex; gap: 0.75rem; margin-bottom: 0.4rem;">
+          <label style="display: flex; align-items: center; font-weight: 400; margin: 0;">
+            <input type="radio" name="durationMode" value="weeks" checked style="width: auto; margin-right: 0.4rem;">
+            Weeks
+          </label>
+          <label style="display: flex; align-items: center; font-weight: 400; margin: 0;">
+            <input type="radio" name="durationMode" value="months" style="width: auto; margin-right: 0.4rem;">
+            Months
+          </label>
+        </div>
+        <input type="number" id="numWeeks" min="1" max="4" step="1" value="4" style="margin-bottom: 0.4rem;">
+        <input type="number" id="numMonths" min="3" max="6" step="1" value="3" style="display: none; margin-bottom: 0.4rem;">
+        <div class="err" id="err-duration">Enter 1-4 weeks or 3-6 months.</div>
       </div>
       <div class="field">
         <label for="groupName">Scheduling group name <span class="hint">(e.g. Banking_All)</span></label>
@@ -429,23 +440,72 @@ function toCSV(rows) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// Duration mode toggle
+// ───────────────────────────────────────────────────────────────────────────
+(function initDurationMode() {
+  const radios = document.querySelectorAll('input[name="durationMode"]');
+  const weeksInput = document.getElementById("numWeeks");
+  const monthsInput = document.getElementById("numMonths");
+
+  const updateVisibility = () => {
+    const mode = document.querySelector('input[name="durationMode"]:checked').value;
+    if (mode === "weeks") {
+      weeksInput.style.display = "";
+      monthsInput.style.display = "none";
+    } else {
+      weeksInput.style.display = "none";
+      monthsInput.style.display = "";
+    }
+  };
+
+  radios.forEach((radio) => {
+    radio.addEventListener("change", updateVisibility);
+  });
+})();
+
+// ───────────────────────────────────────────────────────────────────────────
 // UI wiring
 // ───────────────────────────────────────────────────────────────────────────
 function readInputs() {
   const startDate = document.getElementById("startDate").value.trim();
-  const numWeeks = parseInt(document.getElementById("numWeeks").value, 10);
+  const mode = document.querySelector('input[name="durationMode"]:checked').value;
+  let numWeeks;
+
+  if (mode === "weeks") {
+    numWeeks = parseInt(document.getElementById("numWeeks").value, 10);
+  } else {
+    const numMonths = parseInt(document.getElementById("numMonths").value, 10);
+    numWeeks = numMonths * 4;
+  }
+
   const groupName = document.getElementById("groupName").value.trim();
   const campaign = document.getElementById("campaign").value.trim();
 
   let ok = true;
   const setErr = (id, show) => {
     document.getElementById("err-" + id).style.display = show ? "block" : "none";
-    document.getElementById(id).classList.toggle("invalid", show);
+    const errEl = document.getElementById(id);
+    if (id === "duration") {
+      if (mode === "weeks") {
+        document.getElementById("numWeeks").classList.toggle("invalid", show);
+      } else {
+        document.getElementById("numMonths").classList.toggle("invalid", show);
+      }
+    } else if (errEl) {
+      errEl.classList.toggle("invalid", show);
+    }
     if (show) ok = false;
   };
 
   setErr("startDate", !/^\d{4}-\d{2}-\d{2}$/.test(startDate) || isNaN(new Date(startDate)));
-  setErr("numWeeks", !Number.isInteger(numWeeks) || numWeeks < 1 || numWeeks > 52);
+
+  if (mode === "weeks") {
+    setErr("duration", !Number.isInteger(numWeeks) || numWeeks < 1 || numWeeks > 4);
+  } else {
+    const numMonths = parseInt(document.getElementById("numMonths").value, 10);
+    setErr("duration", !Number.isInteger(numMonths) || numMonths < 3 || numMonths > 6);
+  }
+
   setErr("groupName", groupName.length === 0);
 
   if (!ok) return null;
