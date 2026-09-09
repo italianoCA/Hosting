@@ -1,5 +1,6 @@
-import os, httpx, logging
-from typing import Optional, Literal, Any, Dict
+import os, httpx, logging, base64
+from typing import Annotated, Optional, List
+from pydantic import Field, BaseModel
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 
@@ -15,6 +16,14 @@ else:
 # Initialize FastMCP server
 mcp = FastMCP("ServiceNow Connector")
 
+# Response Models
+class UserInfo(BaseModel):
+    name: str = Field(description="ServiceNow user name")
+    sys_id: str = Field(description="ServiceNow user SysID")
+
+class UserContactResult(BaseModel):
+    users: List[UserInfo] = Field(description="List of users found for the contact info")
+
 # Configure Server Settings
 mcp.settings.host = "0.0.0.0"
 mcp.settings.port = 8086
@@ -23,8 +32,8 @@ mcp.settings.transport_security.enable_dns_rebinding_protection = False
 # --- Configuration ---
 # These will now be pulled from your .env file automatically
 SNOW_BASE_URL = os.environ.get("SNOW_BASE_URL", "https://ven05620.service-now.com").rstrip("/")
-SNOW_CREDENTIAL = os.environ.get("SNOW_CREDENTIAL", "")  # Base64 user:pass
-VA_SYS_ID = os.environ.get("VA_SYS_ID", "")  # Virtual Agent SysID
+#SNOW_CREDENTIAL = os.environ.get("SNOW_CREDENTIAL", "")  # Base64 user:pass
+VA_SYS_ID = os.environ.get("VA_SYS_ID", "")  # Virtual Agent SysID"""
 
 # Setup logging
 logging.basicConfig(
@@ -32,6 +41,12 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("mcp-servicenow")
+
+# Generate auth token from email and password
+def generate_auth_token(email: str, password: str) -> str:
+    """Generate base64 encoded auth token from email and password."""
+    credentials = f"{email}:{password}"
+    return base64.b64encode(credentials.encode()).decode()
 
 async def get_headers():
     auth_header = f"Basic {SNOW_CREDENTIAL.strip()}"
@@ -42,61 +57,83 @@ async def get_headers():
     }
 
 @mcp.tool()
-async def get_userID_by_contact(phone_number: Optional[str] = None, email: Optional[str] = None) -> str:
+async def configure_credentials(
+    email: Annotated[str, Field(description="ServiceNow user email address. Example: admin@company.service-now.com")],
+    password: Annotated[str, Field(description="ServiceNow user password")]
+) -> str:
     """
-    Find a ServiceNow user's SysID and Name using their phone number or email address.
+    Configure ServiceNow credentials using email and password.
+    This generates the Base64 auth token and stores it for subsequent API calls.
+    """
+    global SNOW_CREDENTIAL
+    try:
+        SNOW_CREDENTIAL = generate_auth_token(email, password)
+        logger.info(f"Credentials configured for email: {email}")
+        return f"Credentials successfully configured for {email}"
+    except Exception as e:
+        logger.error(f"Failed to configure credentials: {str(e)}")
+        return f"Error configuring credentials: {str(e)}"
+
+@mcp.tool()
+async def get_userID_by_contact(phone_number: Annotated[Optional[str],Field(description="The user's phone number, including country code. Example: +14155552671")] = None, email: Annotated[Optional[str],Field(description="The user's email address. Example: john.doe@example.com")] = None,) -> UserContactResult:
+    """
+    Find all ServiceNow users' SysID and Name using their phone number or email address.
     Searches by phone first, then falls back to email if provided.
+    Returns all users with their name and SysID.
     """
     logger.info(f"Tool Called: get_userID_by_contact | Parameters: phone='{phone_number}', email='{email}'")
     headers = await get_headers()
-    
+
     async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
         try:
-            user = None
-            
+            users = []
+
             # 1. Try searching by phone if provided
             if phone_number:
-                logger.info(f"Searching for user by phone: {phone_number}")
+                logger.info(f"Searching for users by phone: {phone_number}")
                 user_query = f"phone={phone_number}^ORmobile_phone={phone_number}"
                 user_url = f"{SNOW_BASE_URL}/api/now/table/sys_user"
-                user_params = {"sysparm_query": user_query, "sysparm_limit": 1}
-                
+                user_params = {"sysparm_query": user_query, "sysparm_fields": "name,sys_id"}
+
                 resp = await client.get(user_url, headers=headers, params=user_params)
                 resp.raise_for_status()
                 results = resp.json().get("result", [])
                 if results:
-                    user = results[0]
+                    users.extend(results)
 
-            # 2. If no user found yet, try searching by email if provided
-            if not user and email:
-                logger.info(f"No user found by phone (or phone not provided). Searching by email: {email}")
+            # 2. If no users found yet, try searching by email if provided
+            if not users and email:
+                logger.info(f"No users found by phone (or phone not provided). Searching by email: {email}")
                 user_query = f"email={email}"
                 user_url = f"{SNOW_BASE_URL}/api/now/table/sys_user"
-                user_params = {"sysparm_query": user_query, "sysparm_limit": 1}
-                
+                user_params = {"sysparm_query": user_query, "sysparm_fields": "name,sys_id"}
+
                 resp = await client.get(user_url, headers=headers, params=user_params)
                 resp.raise_for_status()
                 results = resp.json().get("result", [])
                 if results:
-                    user = results[0]
+                    users.extend(results)
 
-            if not user:
+            if not users:
                 search_terms = f"phone: {phone_number}" if phone_number else ""
                 if email:
                     search_terms += f", email: {email}"
-                logger.warning(f"No user found for: {search_terms}")
-                return f"No user found for provided contact info ({search_terms})."
+                logger.warning(f"No users found for: {search_terms}")
+                return UserContactResult(users=[])
 
-            # User found
-            logger.info(f"User Found: {user['name']} (ID: {user['sys_id']})")
-            return f"User Found: {user['name']}\nUser SysID: {user['sys_id']}"
+            # Users found
+            logger.info(f"Found {len(users)} user(s) for the provided contact info")
+            user_objects = [UserInfo(name=user['name'], sys_id=user['sys_id']) for user in users]
+            return UserContactResult(users=user_objects)
 
         except Exception as e:
             logger.error(f"Error in get_userID_by_contact: {str(e)}")
-            return f"Error: {str(e)}"            
+            raise Exception(f"Error: {str(e)}")            
 
 @mcp.tool()
-async def get_open_incidents_by_user(user_sys_id: str) -> str:
+async def get_open_incidents_by_user(
+    user_sys_id: Annotated[str, Field(description="The ServiceNow user's SysID. Example: a1b2c3d4e5f6g7h8")]
+) -> str:
     """
     Fetch all open incidents (state != 7) for a specific user SysID.
     """
@@ -132,7 +169,9 @@ async def get_open_incidents_by_user(user_sys_id: str) -> str:
             return f"Error: {str(e)}"
 
 @mcp.tool()
-async def get_open_interactions_by_user(user_sys_id: str) -> str:
+async def get_open_interactions_by_user(
+    user_sys_id: Annotated[str, Field(description="The ServiceNow user's SysID. Example: a1b2c3d4e5f6g7h8")]
+) -> str:
     """
     Get interaction details for a specific user SysID (excluding closed_complete).
     """
@@ -169,11 +208,11 @@ async def get_open_interactions_by_user(user_sys_id: str) -> str:
 
 @mcp.tool()
 async def create_incident(
-    contact_sys_id: str, 
-    short_desc: str, 
-    full_desc: str, 
-    issue_type: str = "inquiry",
-    preferred_name: str = "Unknown"
+    contact_sys_id: Annotated[str, Field(description="The ServiceNow user/contact SysID. Example: a1b2c3d4e5f6g7h8")],
+    short_desc: Annotated[str, Field(description="Brief incident summary. Example: Password reset request")],
+    full_desc: Annotated[str, Field(description="Detailed incident description with all relevant information")],
+    issue_type: Annotated[str, Field(description="Incident category/issue type. Example: inquiry, question, problem")] = "inquiry",
+    preferred_name: Annotated[str, Field(description="Contact's preferred name for the incident. Example: John Doe")] = "Unknown"
 ) -> str:
     """
     Create a new Incident in ServiceNow.
@@ -204,10 +243,10 @@ async def create_incident(
 
 @mcp.tool()
 async def create_interaction(
-    contact_sys_id: str, 
-    short_desc: str, 
-    full_desc: str, 
-    preferred_name: str = "Unknown"
+    contact_sys_id: Annotated[str, Field(description="The ServiceNow user/contact SysID. Example: a1b2c3d4e5f6g7h8")],
+    short_desc: Annotated[str, Field(description="Brief interaction summary. Example: Account inquiry call")],
+    full_desc: Annotated[str, Field(description="Detailed interaction description with call notes and details")],
+    preferred_name: Annotated[str, Field(description="Contact's preferred name. Example: Jane Smith")] = "Unknown"
 ) -> str:
     """
     Create a new Interaction record.
@@ -237,10 +276,10 @@ async def create_interaction(
 
 @mcp.tool()
 async def update_incident(
-    incident_sys_id: str, 
-    short_desc: Optional[str] = None, 
-    state: str = "2", 
-    work_notes: Optional[str] = None
+    incident_sys_id: Annotated[str, Field(description="The ServiceNow incident SysID. Example: a1b2c3d4e5f6g7h8")],
+    short_desc: Annotated[Optional[str], Field(description="Updated incident summary. Example: Updated: Password reset completed")] = None,
+    state: Annotated[str, Field(description="Incident state code. 1=New, 2=In Progress, 3=On Hold, 4=Resolved, 7=Closed. Default: 2")] = "2",
+    work_notes: Annotated[Optional[str], Field(description="Internal work notes or updates to the incident")] = None
 ) -> str:
     """
     Update an existing Incident. Default state is '2' (In Progress).
@@ -272,9 +311,9 @@ async def update_incident(
 
 @mcp.tool()
 async def update_interaction(
-    interaction_sys_id: str, 
-    work_notes: str, 
-    state: str = "work_in_progress"
+    interaction_sys_id: Annotated[str, Field(description="The ServiceNow interaction SysID. Example: a1b2c3d4e5f6g7h8")],
+    work_notes: Annotated[str, Field(description="Work notes or updates to the interaction")],
+    state: Annotated[str, Field(description="Interaction state. Example: work_in_progress, resolved, closed_complete. Default: work_in_progress")] = "work_in_progress"
 ) -> str:
     """
     Update an existing Interaction (Default state: work_in_progress).
@@ -299,7 +338,11 @@ async def update_interaction(
             return f"Error updating interaction: {str(e)}"
 
 @mcp.tool()
-async def close_incident(incident_sys_id: str, close_code: str, resolution_notes: str) -> str:    
+async def close_incident(
+    incident_sys_id: Annotated[str, Field(description="The ServiceNow incident SysID. Example: a1b2c3d4e5f6g7h8")],
+    close_code: Annotated[str, Field(description="Incident closure reason code. Example: resolved, cancelled, duplicate")],
+    resolution_notes: Annotated[str, Field(description="Summary of how the incident was resolved")]
+) -> str:
     """
     Close an Incident.
     """
@@ -325,10 +368,10 @@ async def close_incident(incident_sys_id: str, close_code: str, resolution_notes
 
 @mcp.tool()
 async def close_interaction(
-    interaction_sys_id: str, 
-    work_notes: str = "Interaction closed after successful resolution.",
-    close_notes: str = "Resolved by Virtual Agent.",
-    state: str = "closed_complete"
+    interaction_sys_id: Annotated[str, Field(description="The ServiceNow interaction SysID. Example: a1b2c3d4e5f6g7h8")],
+    work_notes: Annotated[str, Field(description="Final work notes on the interaction")] = "Interaction closed after successful resolution.",
+    close_notes: Annotated[str, Field(description="Closure notes summarizing the resolution")] = "Resolved by Virtual Agent.",
+    state: Annotated[str, Field(description="Final interaction state. Default: closed_complete")] = "closed_complete"
 ) -> str:
     """
     Close an Interaction with notes.
