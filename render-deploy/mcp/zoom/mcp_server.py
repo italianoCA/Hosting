@@ -7,7 +7,7 @@ import httpx, base64, os, logging
 app = FastMCP("ZVA MCP server")
 
 app.settings.host = "0.0.0.0"
-app.settings.port = 8089
+app.settings.port = 8089  # default port
 app.settings.transport_security.enable_dns_rebinding_protection = False
 
 # Setup logging (minimal at module load)
