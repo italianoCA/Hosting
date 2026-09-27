@@ -416,7 +416,7 @@ async def send_sms(
     contact_center_number: str = None,
     default_country_code: str = "+1"
 ):
-    """
+    """NEW
     Send an SMS to a consumer via Zoom Contact Center.
 
     Args:
