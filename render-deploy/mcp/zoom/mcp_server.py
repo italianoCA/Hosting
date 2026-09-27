@@ -1,8 +1,7 @@
-# mcp_server.py
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
-import httpx, base64, os, logging
+import httpx, base64, os, re, logging
 
 app = FastMCP("ZVA MCP server")
 
@@ -25,6 +24,9 @@ ACCOUNT_ID = os.getenv("ZOOM_ACCOUNT_ID", "").strip().strip("'\"")
 CLIENT_ID = os.getenv("ZOOM_CLIENT_ID", "").strip().strip("'\"")
 CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET", "").strip().strip("'\"")
 
+# Default Contact Center SMS-enabled number (used when caller doesn't supply one)
+DEFAULT_CC_SMS_NUMBER = os.getenv("ZOOM_CC_SMS_NUMBER", "").strip().strip("'\"")
+
 # Track if startup logging has been done (lazy initialization)
 _startup_logged = False
 
@@ -38,6 +40,46 @@ def _log_startup_once():
     logger.info("Zoom Virtual Agent MCP Server initialized")
     logger.info(f"Credentials configured: {bool(ACCOUNT_ID and CLIENT_ID and CLIENT_SECRET)}")
     logger.info("=" * 50)
+
+
+def normalize_to_e164(raw: str, default_country_code: str = "+1"):
+    """Normalize a phone number to E.164 format (e.g. '+15551234567')."""
+    if not raw:
+        return None
+
+    s = str(raw).strip()
+
+    # drop common extension notations
+    s = re.sub(r"\s*(ext\.?|x|extension)\s*\d+$", "", s, flags=re.IGNORECASE)
+
+    # turn leading 00 into +
+    s = re.sub(r"^00+", "+", s)
+
+    # keep only digits and leading '+'
+    cleaned = re.sub(r"[^\d+]", "", s)
+
+    # if already has '+', keep it and strip any other non-digits
+    if cleaned.startswith("+"):
+        e164 = "+" + re.sub(r"\D", "", cleaned[1:])
+        return e164 if re.fullmatch(r"\+\d{7,15}", e164) else None
+
+    digits = re.sub(r"\D", "", cleaned)
+
+    # US/Canada shortcuts
+    if len(digits) == 11 and digits[0] == "1":
+        e164 = "+1" + digits[1:]
+        return e164 if re.fullmatch(r"\+\d{7,15}", e164) else None
+
+    if len(digits) == 10 and default_country_code:
+        e164 = default_country_code + digits
+        return e164 if re.fullmatch(r"\+\d{7,15}", e164) else None
+
+    # fallback: if length looks plausible, prefix default country
+    if default_country_code and 7 <= len(digits) <= 15:
+        e164 = default_country_code + digits
+        return e164 if re.fullmatch(r"\+\d{7,15}", e164) else None
+
+    return None
 
 
 async def get_zoom_token(account_id: str, client_id: str, client_secret: str):
@@ -66,6 +108,27 @@ async def zoom_api_get(endpoint: str, account_id: str, client_id: str, client_se
 
         if not resp.text.strip():
             raise RuntimeError(f"Empty response from Zoom API for endpoint: {endpoint}")
+
+        return resp.json()
+
+
+async def zoom_api_post(endpoint: str, payload: dict, account_id: str, client_id: str, client_secret: str):
+    """Make an authenticated POST request to the Zoom API."""
+    token = await get_zoom_token(account_id, client_id, client_secret)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(f"https://api.zoom.us/v2/{endpoint}", json=payload, headers=headers)
+        logger.info(f"Zoom API Status: {resp.status_code}")
+
+        if resp.status_code not in (200, 201, 204):
+            raise RuntimeError(f"Zoom API error {resp.status_code}: {resp.text}")
+
+        if not resp.text.strip():
+            return {}
 
         return resp.json()
 
@@ -343,6 +406,66 @@ async def analyze_zva_behavior(
 
     except Exception as e:
         logger.error(f"Error in analyze_zva_behavior: {str(e)}")
+        return {"status": "Error", "detail": str(e)}
+
+
+@app.tool()
+async def send_sms(
+    consumer_number: str,
+    message: str,
+    contact_center_number: str = None,
+    default_country_code: str = "+1"
+):
+    """
+    Send an SMS to a consumer via Zoom Contact Center.
+
+    Args:
+        consumer_number: Recipient phone number (any common format; normalized to E.164)
+        message: SMS body text to send
+        contact_center_number: Contact Center SMS-enabled number to send from (defaults to ZOOM_CC_SMS_NUMBER env var)
+        default_country_code: Country code used when normalizing numbers without one (default: "+1")
+    """
+    _log_startup_once()
+    logger.info(f"Tool Called: send_sms | Parameters: consumer_number='{consumer_number}'")
+
+    if not ACCOUNT_ID or not CLIENT_ID or not CLIENT_SECRET:
+        return {"status": "Error", "detail": "Zoom credentials not configured. Call configure_zoom_credentials first."}
+
+    cc_number_raw = contact_center_number or DEFAULT_CC_SMS_NUMBER
+
+    if not message or not message.strip():
+        return {"status": "Error", "detail": "Missing message body. SMS not sent."}
+    if not consumer_number:
+        return {"status": "Error", "detail": "Missing consumer_number. SMS not sent."}
+    if not cc_number_raw:
+        return {"status": "Error", "detail": "Missing contact_center_number and no ZOOM_CC_SMS_NUMBER configured. SMS not sent."}
+
+    send_to = normalize_to_e164(consumer_number, default_country_code)
+    zcc_num = normalize_to_e164(cc_number_raw, default_country_code)
+
+    if not send_to:
+        return {"status": "Error", "detail": f"consumer_number not a valid phone number, SMS not sent: {consumer_number}"}
+    if not zcc_num:
+        return {"status": "Error", "detail": f"contact_center_number not a valid phone number, SMS not sent: {cc_number_raw}"}
+
+    payload = {
+        "contact_center_number": zcc_num,
+        "consumer_numbers": [send_to],
+        "body": message,
+    }
+
+    try:
+        data = await zoom_api_post("contact_center/sms", payload, ACCOUNT_ID, CLIENT_ID, CLIENT_SECRET)
+        logger.info(f"SMS API Response: {data}")
+        return {
+            "status": "Success",
+            "detail": "SMS sent successfully.",
+            "contact_center_number": zcc_num,
+            "consumer_number": send_to,
+            "response": data,
+        }
+    except Exception as e:
+        logger.error(f"Error in send_sms: {str(e)}")
         return {"status": "Error", "detail": str(e)}
 
 
