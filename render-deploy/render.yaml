@@ -35,3 +35,20 @@ services:
         sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
+
+  - type: web
+    name: sfdc-mcp-server
+    runtime: python
+    buildCommand: pip install -r mcp/sfdc/requirements.txt
+    startCommand: python mcp/sfdc/sfdc_mcp.py
+    envVars:
+      - key: SFDC_BASE_URL
+        sync: false
+      - key: SFDC_API_VERSION
+        sync: false
+      - key: SFDC_CLIENT_ID
+        sync: false
+      - key: SFDC_CLIENT_SECRET
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
