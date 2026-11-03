@@ -100,7 +100,8 @@ async def get_access_token(force_refresh: bool = False) -> str:
             data=data,
             headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
         )
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            raise Exception(f"Auth failed: {resp.status_code} - {resp.text}")
         token = resp.json().get("access_token")
         if not token:
             raise Exception("Salesforce did not return an access token.")

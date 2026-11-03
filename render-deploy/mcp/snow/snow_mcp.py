@@ -123,7 +123,7 @@ async def get_userID_by_contact(phone_number: Annotated[Optional[str],Field(desc
 
             # Users found
             logger.info(f"Found {len(users)} user(s) for the provided contact info")
-            user_objects = [UserInfo(name=user['name'], sys_id=user['sys_id']) for user in users]
+            user_objects = (UserInfo(name=user['name'], sys_id=user['sys_id']) for user in users)
             return UserContactResult(users=user_objects)
 
         except Exception as e:
