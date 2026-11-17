@@ -15,7 +15,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("mcp-zva")
-
+"""
 # Load environment variables once at startup
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 
@@ -23,7 +23,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 ACCOUNT_ID = os.getenv("ZOOM_ACCOUNT_ID", "").strip().strip("'\"")
 CLIENT_ID = os.getenv("ZOOM_CLIENT_ID", "").strip().strip("'\"")
 CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET", "").strip().strip("'\"")
-
+"""
 # Default Contact Center SMS-enabled number (used when caller doesn't supply one)
 DEFAULT_CC_SMS_NUMBER = os.getenv("ZOOM_CC_SMS_NUMBER", "").strip().strip("'\"")
 
