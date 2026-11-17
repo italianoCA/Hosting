@@ -344,11 +344,13 @@ async def analyze_zva_behavior(
 
 
 if __name__ == "__main__":
+    logger.info("Starting Zoom Virtual Agent MCP Server")
+    logger.info(f"Transport: Streamable HTTP | Protocol: 2025-11-25 | Port: {mcp.settings.port}")
+    
     mcp.run(
         transport="streamable-http",
         host="0.0.0.0",
         port=8086,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
-    logger.info("Starting Zoom Virtual Agent MCP Server")
-    logger.info(f"Transport: Streamable HTTP | Protocol: 2025-11-25 | Port: {mcp.settings.port}")
+    
