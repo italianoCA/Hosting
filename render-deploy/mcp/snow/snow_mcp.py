@@ -1,7 +1,7 @@
 import os, httpx, logging, base64
 from typing import Annotated, Optional, List
 from pydantic import Field, BaseModel
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import  MCPServer
 from dotenv import load_dotenv
 
 # Find the directory where servicenow_mcp.py lives, then look for .env in the parent directory
@@ -13,8 +13,8 @@ if env_loaded:
 else:
     print(f"Warning: Could not find or load .env file at: {os.path.abspath(env_path)}")
 
-# Initialize FastMCP server
-mcp = FastMCP("ServiceNow Connector")
+# Initialize  MCPServer server
+mcp =  MCPServer("ServiceNow Connector")
 
 # Response Models
 class UserInfo(BaseModel):
