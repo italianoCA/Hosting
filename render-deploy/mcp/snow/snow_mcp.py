@@ -29,15 +29,6 @@ def pick_single_sys_id(result: UserContactResult) -> Optional[str]:
         return result.users[0].sys_id
     return None  # zero or multiple matches: caller must ask the user to disambiguate
 
-# Configure Server Settings
-if __name__ == "__main__":
-    mcp.run(
-        transport="streamable-http",
-        host="0.0.0.0",
-        port=8086,
-        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-    )
-
 # --- Configuration ---
 # These will now be pulled from your .env file automatically
 SNOW_BASE_URL = os.environ.get("SNOW_BASE_URL", "https://ven05620.service-now.com").rstrip("/")
@@ -406,7 +397,12 @@ async def close_interaction(
 
 if __name__ == "__main__":
     # To run: python servicenow_mcp.py
+    mcp.run(
+            transport="streamable-http",
+            host="0.0.0.0",
+            port=8086,
+            transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        )
     logger.info("Starting Zoom Virtual Agent MCP Server")
     logger.info(f"Transport: Streamable HTTP | Protocol: 2025-11-25 | Port: {mcp.settings.port}")
     
-    mcp.run(transport="streamable-http")
