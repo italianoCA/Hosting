@@ -1,25 +1,11 @@
-import os, httpx, logging
+import httpx, logging
 from typing import Annotated, Optional, List
 from pydantic import Field, BaseModel
-from mcp.server.fastmcp import FastMCP
-from dotenv import load_dotenv
-
-# Find the directory where sfdc_mcp.py lives, then look for .env in the parent directory
-env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-env_loaded = load_dotenv(dotenv_path=env_path)
-
-if env_loaded:
-    print(f"Successfully loaded .env file from: {os.path.abspath(env_path)}")
-else:
-    print(f"Warning: Could not find or load .env file at: {os.path.abspath(env_path)}")
+from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 # Initialize FastMCP server
-mcp = FastMCP("Salesforce Connector")
-
-# Configure Server Settings
-mcp.settings.host = "0.0.0.0"
-mcp.settings.port = 8090
-mcp.settings.transport_security.enable_dns_rebinding_protection = False
+mcp = MCPServer("Salesforce Connector")
 
 # Setup logging
 logging.basicConfig(
@@ -29,12 +15,12 @@ logging.basicConfig(
 logger = logging.getLogger("mcp-salesforce")
 
 # --- Configuration ---
-# Defaults can be provided via .env; configure_credentials() overrides them at runtime.
+# Populated entirely by the configure_credentials tool call at runtime; never read from the environment.
 SFDC_CONFIG = {
-    "base_url": os.environ.get("SFDC_BASE_URL", "").rstrip("/"),
-    "api_version": os.environ.get("SFDC_API_VERSION", "v64.0"),
-    "client_id": os.environ.get("SFDC_CLIENT_ID", ""),
-    "client_secret": os.environ.get("SFDC_CLIENT_SECRET", ""),
+    "base_url": "",
+    "api_version": "",
+    "client_id": "",
+    "client_secret": "",
     "access_token": None,
 }
 
@@ -426,4 +412,11 @@ async def close_case(
 
 if __name__ == "__main__":
     # To run: python sfdc_mcp.py
-    mcp.run(transport="streamable-http")
+    mcp.run(
+            transport="streamable-http",
+            host="0.0.0.0",
+            port=8090,
+            transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        )
+    logger.info("Starting Zoom Virtual Agent MCP Server")
+    logger.info(f"Transport: Streamable HTTP | Protocol: 2025-11-25 | Port: {mcp.settings.port}")
